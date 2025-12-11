@@ -1,3 +1,9 @@
--- create role and database; change password if needed
-CREATE ROLE sreuser WITH LOGIN PASSWORD 'srepass';
-CREATE DATABASE appdb OWNER sreuser;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'sreuser') THEN
+    CREATE ROLE sreuser WITH LOGIN PASSWORD 'srepass';
+  END IF;
+END
+$$;
+
+CREATE DATABASE IF NOT EXISTS sredb OWNER sreuser;
