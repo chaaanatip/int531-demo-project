@@ -3,7 +3,7 @@ package api
 import (
 	"database/sql"
 
-	"github.com/9inejames/int531-demo-project/internal/middleware"
+	"github.com/chaaanatip/int531-demo-project/internal/middleware"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 )

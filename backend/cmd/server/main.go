@@ -8,13 +8,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/9inejames/int531-demo-project/internal/migration"
+	"github.com/chaaanatip/int531-demo-project/internal/migration"
 
-	"github.com/9inejames/int531-demo-project/internal/db"
+	"github.com/chaaanatip/int531-demo-project/internal/db"
 
-	"github.com/9inejames/int531-demo-project/internal/config"
-
-	"github.com/9inejames/int531-demo-project/internal/api"
+	"github.com/chaaanatip/int531-demo-project/internal/config"
+	"github.com/chaaanatip/int531-demo-project/internal/api"
 )
 
 func main() {
