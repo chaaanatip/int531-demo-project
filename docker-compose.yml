@@ -36,12 +36,14 @@ services:
     container_name: frontend
     networks: [sre_net]
     depends_on: [backend]
+    ports:
+      - '80:80' # serve static site on host port 80
 
   kong:
     image: kong:3.6
     container_name: kong
     ports:
-      - '80:8000' # proxy (browser -> Kong)
+      - '8000:8000' # proxy (browser -> Kong)
       - '8443:8443' # proxy TLS optional
       - '8001:8001' # admin (optional)
     environment:
