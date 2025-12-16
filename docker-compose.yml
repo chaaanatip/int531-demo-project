@@ -13,8 +13,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD-SHELL",
-          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h localhost -p 5432",
+          'CMD-SHELL',
+          'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h localhost -p 5432',
         ]
       interval: 5s
       timeout: 3s
@@ -36,18 +36,16 @@ services:
     container_name: frontend
     networks: [sre_net]
     depends_on: [backend]
-    ports:
-      - "80:80" # serve static site on host port 80
 
   kong:
     image: kong:3.6
     container_name: kong
     ports:
-      - "8000:8000" # proxy (browser -> Kong)
-      - "8443:8443" # proxy TLS optional
-      - "8001:8001" # admin (optional)
+      - '80:8000' # proxy (browser -> Kong)
+      - '8443:8443' # proxy TLS optional
+      - '8001:8001' # admin (optional)
     environment:
-      KONG_DATABASE: "off"
+      KONG_DATABASE: 'off'
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
       KONG_PROXY_LISTEN: 0.0.0.0:8000,0.0.0.0:8443 ssl
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
