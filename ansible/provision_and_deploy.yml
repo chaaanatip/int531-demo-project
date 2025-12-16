@@ -1,6 +1,5 @@
-สร้าง playbook ที่เป็นนามสกุล 
+สร้าง playbook ที่เป็นนามสกุล
 เช่น provision_and_deploy.yml
-
 ---
 ###############################################
 # PLAY 1 — Provision VM on Proxmox (cloud-init)
@@ -18,48 +17,48 @@
     proxmox_node: int531-06
 
     # ===== Template & VM config =====
-    vm_template: "ubuntu-2404-cloudinit"
-    vm_name: "bjg-demo-vm"
-    vm_hostname: "bjg-demo-vm"
+    vm_template: 'ubuntu-2404-cloudinit'
+    vm_name: 'bjg-demo-vm'
+    vm_hostname: 'bjg-demo-vm'
 
     vm_ip: 10.13.104.150
     vm_cidr: 24
     vm_gw: 10.13.104.254
 
     # ===== SSH ฝั่ง Ansible (WSL) =====
-    ansible_ssh_key_path: "/home/niraphan2560/.ssh/id_ed25519"
+    ansible_ssh_key_path: '/home/niraphan2560/.ssh/id_ed25519'
 
     # ===== App config =====
     app_dir: /opt/myapp
-    app_repo: "https://github.com/9INEJAMES/int531-demo-project.git"
+    app_repo: 'https://github.com/chaaanatip/int531-demo-project.git'
 
   tasks:
     - name: Create VM from cloud-init template
       community.proxmox.proxmox_kvm:
-        api_user: "{{ proxmox_api_user }}"
-        api_password: "{{ proxmox_api_password }}"
-        api_host: "{{ proxmox_api_host }}"
-        node: "{{ proxmox_node }}"
-        clone: "{{ vm_template }}"
-        name: "{{ vm_name }}"
+        api_user: '{{ proxmox_api_user }}'
+        api_password: '{{ proxmox_api_password }}'
+        api_host: '{{ proxmox_api_host }}'
+        node: '{{ proxmox_node }}'
+        clone: '{{ vm_template }}'
+        name: '{{ vm_name }}'
         full: true
         timeout: 300
         ipconfig:
-          ipconfig0: "ip={{ vm_ip }}/{{ vm_cidr }},gw={{ vm_gw }}"
+          ipconfig0: 'ip={{ vm_ip }}/{{ vm_cidr }},gw={{ vm_gw }}'
       register: created_vm
 
     - name: Start new VM
       community.proxmox.proxmox_kvm:
-        api_user: "{{ proxmox_api_user }}"
-        api_password: "{{ proxmox_api_password }}"
-        api_host: "{{ proxmox_api_host }}"
-        node: "{{ proxmox_node }}"
-        vmid: "{{ created_vm.vmid }}"
+        api_user: '{{ proxmox_api_user }}'
+        api_password: '{{ proxmox_api_password }}'
+        api_host: '{{ proxmox_api_host }}'
+        node: '{{ proxmox_node }}'
+        vmid: '{{ created_vm.vmid }}'
         state: started
 
     - name: Wait for SSH on VM
       ansible.builtin.wait_for:
-        host: "{{ vm_ip }}"
+        host: '{{ vm_ip }}'
         port: 22
         delay: 15
         timeout: 300
@@ -67,16 +66,16 @@
     - name: Register new VM as dynamic host
       ansible.builtin.add_host:
         name: new_vm
-        ansible_host: "{{ vm_ip }}"
-        ansible_user: "dev"
-        ansible_ssh_private_key_file: "{{ ansible_ssh_key_path }}"
+        ansible_host: '{{ vm_ip }}'
+        ansible_user: 'dev'
+        ansible_ssh_private_key_file: '{{ ansible_ssh_key_path }}'
         ansible_python_interpreter: /usr/bin/python3
-        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
         groups: provisioned
 
     - name: Show created VMID
       ansible.builtin.debug:
-        msg: "Created VM with VMID {{ created_vm.vmid }} on {{ proxmox_node }}"
+        msg: 'Created VM with VMID {{ created_vm.vmid }} on {{ proxmox_node }}'
 
 ###########################################################
 # PLAY 2 — Configure VM & run app via make
@@ -87,9 +86,9 @@
   gather_facts: yes
 
   vars:
-    vm_hostname: "bjg-demo-vm"
+    vm_hostname: 'bjg-demo-vm'
     app_dir: /opt/myapp
-    app_repo: "https://github.com/9INEJAMES/int531-demo-project.git"
+    app_repo: 'https://github.com/chaaanatip/int531-demo-project.git'
 
   tasks:
     - name: Wait for cloud-init to complete
@@ -107,7 +106,7 @@
 
     - name: Set hostname inside VM
       ansible.builtin.hostname:
-        name: "{{ vm_hostname }}"
+        name: '{{ vm_hostname }}'
 
     - name: Update apt cache
       ansible.builtin.apt:
@@ -128,7 +127,7 @@
       ansible.builtin.file:
         path: /etc/apt/keyrings
         state: directory
-        mode: "0755"
+        mode: '0755'
 
     - name: Add Docker GPG key
       ansible.builtin.shell: |
@@ -144,7 +143,7 @@
 
     - name: Add Docker APT repository
       ansible.builtin.apt_repository:
-        repo: "deb [arch={{ system_arch.stdout }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+        repo: 'deb [arch={{ system_arch.stdout }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable'
         state: present
         filename: docker
         update_cache: yes
@@ -167,32 +166,32 @@
 
     - name: Add dev user to docker group
       ansible.builtin.user:
-        name: "{{ ansible_user }}"
+        name: '{{ ansible_user }}'
         groups: docker
         append: yes
 
     - name: Ensure app directory exists
       ansible.builtin.file:
-        path: "{{ app_dir }}"
+        path: '{{ app_dir }}'
         state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0755"
+        owner: '{{ ansible_user }}'
+        group: '{{ ansible_user }}'
+        mode: '0755'
 
     - name: Clone app repo (default branch)
       ansible.builtin.git:
-        repo: "{{ app_repo }}"
-        dest: "{{ app_dir }}"
+        repo: '{{ app_repo }}'
+        dest: '{{ app_dir }}'
         update: yes
         force: yes
         version: HEAD
       become: yes
-      become_user: "{{ ansible_user }}"
+      become_user: '{{ ansible_user }}'
 
     - name: Run app with make run (as dev with docker group)
       ansible.builtin.shell: |
         sg docker -c "make run"
       args:
-        chdir: "{{ app_dir }}"
+        chdir: '{{ app_dir }}'
       become: yes
-      become_user: "{{ ansible_user }}"
+      become_user: '{{ ansible_user }}'

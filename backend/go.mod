@@ -1,4 +1,4 @@
-module github.com/9inejames/int531-demo-project
+module github.com/chaaanatip/int531-demo-project
 
 go 1.24.3
 
