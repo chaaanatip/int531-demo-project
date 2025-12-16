@@ -1,4 +1,4 @@
-_format_version: "3.0"
+_format_version: '3.0'
 
 services:
   - name: backend
@@ -7,6 +7,7 @@ services:
       - name: backend-api
         paths:
           - /api
+        strip_path: true
 
   - name: frontend
     url: http://frontend:80
