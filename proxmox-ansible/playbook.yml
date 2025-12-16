@@ -1,0 +1,340 @@
+---
+# provision_and_deploy.yml
+###############################################
+# PLAY 1 — Provision VM on Proxmox (cloud-init)
+###############################################
+- name: Provision VM on Proxmox and register dynamically
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # ===== Proxmox API =====
+    proxmox_api_host: 10.13.104.217
+    proxmox_api_user: root@pam
+    proxmox_api_password: int53107
+    proxmox_node: blade-server07
+
+    # ===== VM config =====
+    vm_template: ubuntu-cloud-template-v2
+    vm_name: test-ansible-vm
+    vm_target_ip: 10.13.104.89
+    vm_cidr: 24
+    vm_gw: 10.13.104.254
+    ansible_ssh_key_path: "/home/russody/.ssh/id_ed25519"  # private key path
+
+  tasks:
+    - name: Clone VM from template
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password }}"
+        node: "{{ proxmox_node }}"
+        clone: "{{ vm_template }}"
+        name: "{{ vm_name }}"
+        storage: local-lvm
+        format: qcow2
+        timeout: 900
+        state: present
+      register: new_vm
+
+    - name: Debug - Show new_vm variable
+      ansible.builtin.debug:
+        var: new_vm
+
+    - name: Get VM ID by name if not in response
+      community.proxmox.proxmox_vm_info:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password }}"
+        node: "{{ proxmox_node }}"
+        name: "{{ vm_name }}"
+      register: vm_info
+      when: new_vm.vmid is not defined
+
+    - name: Set vmid fact
+      ansible.builtin.set_fact:
+        vm_id: "{{ new_vm.vmid | default(vm_info.proxmox_vms[0].vmid) }}"
+
+    - name: Configure cloud-init (user & SSH key)
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vm_id }}"
+        ciuser: ansible
+        cipassword: ansible
+        sshkeys: "{{ lookup('file', ansible_ssh_key_path + '.pub') }}"
+        nameservers:
+          - 8.8.8.8
+          - 8.8.4.4
+        ipconfig:
+          ipconfig0: "ip={{ vm_target_ip }}/{{ vm_cidr }},gw={{ vm_gw }}"
+        update: yes
+
+    - name: Start VM
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vm_id }}"
+        state: started
+
+    - name: Wait for SSH to be available
+      ansible.builtin.wait_for:
+        host: "{{ vm_target_ip }}"
+        port: 22
+        delay: 10
+        timeout: 300
+
+    - name: Register new VM as dynamic host
+      ansible.builtin.add_host:
+        name: new_vm
+        ansible_host: "{{ vm_target_ip }}"
+        ansible_user: ansible
+        ansible_ssh_private_key_file: "{{ ansible_ssh_key_path }}"
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        groups: provisioned
+
+###############################################
+# PLAY 2 — Configure VM and deploy app
+###############################################
+- name: Configure VM and deploy app
+  hosts: new_vm
+  become: yes
+  gather_facts: yes
+
+  vars:
+    app_dir: /opt/myapp
+    app_repo: "https://github.com/chaaanatip/int531-demo-project.git"
+
+  tasks:
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Wait for apt lock to be released
+      ansible.builtin.shell: |
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 ; do
+          echo "Waiting for apt lock..."
+          sleep 5
+        done
+      changed_when: false
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 600
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - git
+          - make
+          - curl
+          - python3-pip
+          - docker.io
+          - docker-compose
+        state: present
+
+    - name: Ensure Docker is enabled and running
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add ansible user to docker group
+      ansible.builtin.user:
+        name: ansible
+        groups: docker
+        append: yes
+
+    - name: Install Python Docker SDK via apt
+      ansible.builtin.apt:
+        name: python3-docker
+        state: present
+
+    - name: Install ufw (firewall)
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: Allow SSH through firewall
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Allow Kong proxy port (8000)
+      community.general.ufw:
+        rule: allow
+        port: '8000'
+        proto: tcp
+
+    - name: Allow Kong admin port (8001)
+      community.general.ufw:
+        rule: allow
+        port: '8001'
+        proto: tcp
+
+    - name: Allow frontend port (80)9
+      community.general.ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+
+    - name: Enable firewall
+      community.general.ufw:
+        state: enabled
+
+    - name: Ensure app directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: ansible
+        group: ansible
+        mode: "0755"
+
+    - name: Clone app repository
+      ansible.builtin.git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dir }}"
+        version: main
+        force: yes
+        update: yes
+
+    - name: Check if .env.example exists
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/.env.example"
+      register: env_example
+
+    - name: Create .env file from example if exists
+      ansible.builtin.copy:
+        src: "{{ app_dir }}/.env.example"
+        dest: "{{ app_dir }}/.env"
+        remote_src: yes
+        owner: ansible
+        group: ansible
+        mode: "0644"
+        force: no
+      when: env_example.stat.exists
+
+    - name: Create .env file with default values if example not exists
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/.env"
+        owner: ansible
+        group: ansible
+        mode: "0644"
+        content: |
+          TZ=Asia/Bangkok
+
+          MYSQL_ROOT_PASSWORD=change_me_root_password
+          MYSQL_DATABASE=students_db
+          MYSQL_USER=app
+          MYSQL_PASSWORD=app_password
+
+          DATABASE_URL=mysql://app:app_password@mariadb:3306/students_db
+
+          NODE_ENV=production
+          PORT=3000
+        force: no
+      when: not env_example.stat.exists
+
+    - name: Debug - Show docker-compose.yml content
+      ansible.builtin.shell: cat "{{ app_dir }}/docker-compose.yml"
+      register: compose_content
+
+    - name: Debug - Display docker-compose.yml
+      ansible.builtin.debug:
+        var: compose_content.stdout_lines
+
+    - name: Debug - List services in docker-compose
+      ansible.builtin.shell: docker-compose config --services
+      args:
+        chdir: "{{ app_dir }}"
+      register: services_list
+
+    - name: Debug - Show available services
+      ansible.builtin.debug:
+        var: services_list.stdout_lines
+
+    - name: Clean up old containers and volumes
+      ansible.builtin.shell: docker-compose down -v
+      args:
+        chdir: "{{ app_dir }}"
+      failed_when: false
+
+    - name: Verify Kong config file
+      ansible.builtin.shell: cat "{{ app_dir }}/kong/kong.yml"
+      register: kong_config
+
+    - name: Show Kong config
+      ansible.builtin.debug:
+        var: kong_config.stdout_lines
+
+    - name: Build backend with no cache
+      ansible.builtin.shell: docker-compose build --no-cache backend
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Start database first
+      ansible.builtin.shell: docker-compose up -d database
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Wait for database to be healthy
+      ansible.builtin.shell: docker-compose ps database | grep -i healthy
+      args:
+        chdir: "{{ app_dir }}"
+      register: db_health
+      until: db_health.rc == 0
+      retries: 20
+      delay: 5
+
+    - name: Run app with docker-compose
+      ansible.builtin.shell: docker-compose up -d
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Restart Kong to reload config
+      ansible.builtin.shell: docker-compose restart kong
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Wait for all services to start
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Check container status
+      ansible.builtin.shell: docker-compose ps
+      args:
+        chdir: "{{ app_dir }}"
+      register: container_status
+
+    - name: Show container status
+      ansible.builtin.debug:
+        var: container_status.stdout_lines
+
+    - name: Check backend logs
+      ansible.builtin.shell: docker-compose logs --tail=30 backend
+      args:
+        chdir: "{{ app_dir }}"
+      register: backend_logs
+
+    - name: Show backend logs
+      ansible.builtin.debug:
+        var: backend_logs.stdout_lines
+
+    - name: Check Kong logs
+      ansible.builtin.shell: docker-compose logs --tail=30 kong
+      args:
+        chdir: "{{ app_dir }}"
+      register: kong_logs
+
+    - name: Show Kong logs
+      ansible.builtin.debug:
+        var: kong_logs.stdout_lines
