@@ -16,7 +16,7 @@ func NewApp(db *sql.DB) *fiber.App {
 	app.Use(middleware.RequestIDMiddleware)
 	app.Use(middleware.LoggerMiddleware)
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://10.13.104.89",
+		AllowOrigins: "*",
 		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders: "Content-Type,Authorization",
 	}))
